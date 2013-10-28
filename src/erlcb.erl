@@ -349,17 +349,62 @@ get_and_touch(ServerName,Key,Expiry) when is_binary(Key) and is_integer(Expiry) 
 			{?CB_CONNECTION_NOT_FOUND, <<"connection not found">>}
 	end.
 
-increment(_ServerName,_Key,_Offset,_Default,_Expiry)->
-	{?CB_UNIMPLEMENTED,<<"unimplemented">>}.
+increment(ServerName, Key, Offset, Default, Expiry)->
+    case exists(ServerName) of
+	true ->
+	    try
+		gen_server:call(?MODULE,{request,{ServerName,{incr,{Key, Offset, Default, Expiry}}}})
+	    catch
+		_:_ ->
+		    {?CB_UNEXPECTED_ERROR,<<"unexpected error">>}
+	    end;
+	false ->
+	    {?CB_CONNECTION_NOT_FOUND, <<"connection not found">>}
+    end.
 
-decrement(_ServerName,_Key,_Offset,_Default,_Expiry)->
-	{?CB_UNIMPLEMENTED,<<"unimplemented">>}.
+decrement(ServerName, Key, Offset, Default, Expiry)->
+    case exists(ServerName) of
+	true ->
+	    try
+		gen_server:call(?MODULE,{request,{ServerName,{decr,{Key, Offset, Default, Expiry}}}})
+	    catch
+		_:_ ->
+		    {?CB_UNEXPECTED_ERROR,<<"unexpected error">>}
+	    end;
+	false ->
+	    {?CB_CONNECTION_NOT_FOUND, <<"connection not found">>}
+    end.
 	
-append(_ServerName,_Cas,_Key,_Value)->
-	{?CB_UNIMPLEMENTED,<<"unimplemented">>}.
+append(ServerName, Key, Cas, Value)->
+    case exists(ServerName) of
+	true ->
+	    try
+		gen_server:call(?MODULE,{request,{ServerName,{append,{Key, Cas, Value}}}})
+	    catch
+		Type:What ->
+		    Report = ["method error",
+			      {type, Type}, {what, What},
+			      {trace, erlang:get_stacktrace()}],
+		    error_logger:error_report(Report);
+		_:_ ->
+		    {?CB_UNEXPECTED_ERROR,<<"unexpected error">>}
+	    end;
+	false ->
+	    {?CB_CONNECTION_NOT_FOUND, <<"connection not found">>}
+    end.
 	
-prepend(_ServerName,_Cas,_Key,_Value)->
-	{?CB_UNIMPLEMENTED,<<"unimplemented">>}.
+prepend(ServerName, Key, Cas, Value)->
+    case exists(ServerName) of
+	true ->
+	    try
+		gen_server:call(?MODULE,{request,{ServerName,{prepend,{Key, Cas, Value}}}})
+	    catch
+		_:_ ->
+		    {?CB_UNEXPECTED_ERROR,<<"unexpected error">>}
+	    end;
+	false ->
+	    {?CB_CONNECTION_NOT_FOUND, <<"connection not found">>}
+    end.
 
 
 %% ------------------------------------------------------------------

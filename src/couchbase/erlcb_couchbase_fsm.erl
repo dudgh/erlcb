@@ -192,40 +192,47 @@ lookupStream(Couchbase,NodeIndex) ->
 	end.
 	
 receive_data(CouchbaseName,RequestId) ->
-	case receive_chunk(CouchbaseName, RequestId) of
-		{ok,_} ->
-			io:format("streaming end~n",[]),
-			gen_fsm:send_event(erlcb_util:append_to_atom(CouchbaseName,'_fsm'),restart);
-		{error,Reason} ->
-			io:format("streaming error : ~p~n",[Reason]),
-			gen_fsm:send_event(erlcb_util:append_to_atom(CouchbaseName,'_fsm'),restart)
-	end.
+    case receive_chunk(CouchbaseName, RequestId, <<"">>) of
+	    {ok,_} ->
+		io:format("streaming end~n",[]),
+		gen_fsm:send_event(erlcb_util:append_to_atom(CouchbaseName,'_fsm'),restart);
+	    {error,Reason} ->
+		io:format("streaming error : ~p~n",[Reason]),
+		gen_fsm:send_event(erlcb_util:append_to_atom(CouchbaseName,'_fsm'),restart)
+    end.
 
-receive_chunk(CouchbaseName,RequestId)->
-	receive
-		{http, {RequestId, {error, Reason}}} when(Reason =:= etimedout) orelse(Reason =:= timeout) -> 
-			{error,timeout};
-		{http, {RequestId, {{_, 401, _} = Status, Headers, _}}} -> 
-			{error, unauthorized, {Status, Headers}};
-		{http, {RequestId, Result}} -> 
-			{error,Result};
-		{http,{RequestId, stream_start, _Headers}} ->
-			receive_chunk(CouchbaseName,RequestId);
-		{http,{RequestId, stream, Data}} ->
-			case Data of
-				?STREAM_CHUNK_END ->
-					ok;
-				_->
-					set_vbucket(CouchbaseName,Data)
-			end,
-			receive_chunk(CouchbaseName,RequestId);
-		{http,{RequestId, stream_end, _Headers}} ->
-			{ok,stream_end}
-	end.
+receive_chunk(CouchbaseName,RequestId, ReceiveData)->
+    receive
+	{http, {RequestId, {error, Reason}}} when(Reason =:= etimedout) orelse(Reason =:= timeout) -> 
+	    {error,timeout};
+	{http, {RequestId, {{_, 401, _} = Status, Headers, _}}} -> 
+	    {error, unauthorized, {Status, Headers}};
+	{http, {RequestId, Result}} -> 
+	    {error,Result};
+	{http,{RequestId, stream_start, _Headers}} ->
+	    receive_chunk(CouchbaseName,RequestId, <<"">>);
+	{http,{RequestId, stream, Data}} ->
+	    case Data of
+		?STREAM_CHUNK_END ->
+		    set_vbucket(CouchbaseName,ReceiveData),
+		    {ok,stream_end};
+		Data ->
+		    case binary:longest_common_suffix([Data, ?STREAM_CHUNK_END]) of
+			4 -> %% End Stream
+			    set_vbucket(CouchbaseName, <<ReceiveData/binary, Data/binary>>),
+			    receive_chunk(CouchbaseName, RequestId, <<"">>);
+			_ ->
+			    receive_chunk(CouchbaseName, RequestId, <<ReceiveData/binary, Data/binary>>)
+		    end
+	    end;
+	{http,{RequestId, stream_end, _Headers}} ->
+	    {ok,stream_end}
+    end.
 %% ------------------------------------------------------------------
 %% Setup vbucket
 %% ------------------------------------------------------------------
 set_vbucket(CouchbaseName,DataSource) when is_binary(DataSource) ->
+    io:fwrite("Couchbase DataSource : ~p~n", [DataSource]),
 
 	{Data}=jiffy:decode(DataSource),
 	StreamingUri=binary_to_list(proplists:get_value(<<"streamingUri">>,Data)),
@@ -261,6 +268,7 @@ set_vbucket(CouchbaseName,DataSource) when is_binary(DataSource) ->
 	end;
 	
 set_vbucket(CouchbaseName,Data ) ->
+
 	io:format("~p : New vbucket setup...~n",[CouchbaseName]),
 	
 	CouchApiSup=erlcb_util:append_to_atom(CouchbaseName,'_couchapi_sup'),

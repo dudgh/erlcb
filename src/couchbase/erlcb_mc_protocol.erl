@@ -170,6 +170,80 @@ op(get_and_touch,{Request,VBucket},State)->
 	},
 	send_recv(State,encode_packet(RequestHeader,RequestBody));
 
+op(incr,{Request,VBucket},State)->
+	{Key, Offset, Default, Expiry} = Request,
+
+        Extras= <<Offset:64,Default:64,Expiry:32>>,
+
+	RequestBody=#mc_body{
+		extras=Extras,
+		key=Key
+	},
+	RequestHeader=#mc_header{
+		magic=?REQ_MAGIC,
+		opcode=?INCREMENT,
+		keylen=size(Key),
+		extraslen=size(Extras),
+		reserve=VBucket
+	},
+
+	send_recv(State,encode_packet(RequestHeader,RequestBody));
+
+op(decr,{Request,VBucket},State)->
+	{Key, Offset, Default, Expiry} = Request,
+
+        Extras= <<Offset:64,Default:64,Expiry:32>>,
+
+	RequestBody=#mc_body{
+		extras=Extras,
+		key=Key
+	},
+	RequestHeader=#mc_header{
+		magic=?REQ_MAGIC,
+		opcode=?DECREMENT,
+		keylen=size(Key),
+		extraslen=size(Extras),
+		reserve=VBucket
+	},
+
+	send_recv(State,encode_packet(RequestHeader,RequestBody));
+
+op(append,{Request,VBucket},State)->
+    io:format("Request Byte : ~p~n",[Request]),
+    {Key, Cas, Value} =  Request,
+
+    RequestBody=#mc_body{
+		   key=Key,
+		   data=Value
+		  },
+    RequestHeader=#mc_header{
+		     magic=?REQ_MAGIC,
+		     opcode=?APPEND,
+		     keylen=size(Key),
+		     reserve=VBucket,
+		     cas = Cas,
+		     bodylen=size(Key)
+		    },
+    send_recv(State,encode_packet(RequestHeader,RequestBody));
+
+op(prepend,{Request,VBucket},State)->
+    {Key, Cas, Value} =  Request,
+
+    RequestBody=#mc_body{
+		   key=Key,
+		   data=Value
+		  },
+    RequestHeader=#mc_header{
+		     magic=?REQ_MAGIC,
+		     opcode=?PREPEND,
+		     keylen=size(Key),
+		     reserve=VBucket,
+		     cas = Cas,
+		     bodylen=size(Key)
+		    },
+    send_recv(State,encode_packet(RequestHeader,RequestBody));
+
+
 op(_,_,State)->
 	{reply,{?CB_UNKNOWN_COMMAND,<<"unknown command">>},State}.
 		

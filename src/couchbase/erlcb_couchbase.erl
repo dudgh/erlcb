@@ -100,10 +100,15 @@ handle_call({Op,Request},_From,State)->
 	try
 		Key=element(1,Request),
 		{VBucket,VBucketMap}=get_vbucket(State#erlcb_client_state.bucket_table,Key),
-%		io:format("VBucket : ~p, Map :~p~n",[VBucket,VBucketMap]),
+		io:format("Request : ~p , Key : ~p, VBucket : ~p, Map :~p~n",[Request, Key, VBucket,VBucketMap]),
 		Result=op(Op,Request,{VBucket,VBucketMap},State),
 		{reply,Result,State}
 	catch
+		Type:What ->
+		    Report = ["Op error",
+			      {type, Type}, {what, What},
+			      {trace, erlang:get_stacktrace()}],
+		    error_logger:error_report(Report);
 		_:_->
 			{reply,{?CB_UNEXPECTED_ERROR,<<"unexpected error">>},State}
 	end;
@@ -186,27 +191,32 @@ stat(State,Index,Mask) ->
 	
 
 op(Op,Request,{VBucket,VBucketMap},State)->
+    
+io:format("Map : ~p~n",[VBucketMap]),
 	case VBucketMap of
 		[] ->
 			{?CB_UNEXPECTED_VBUCKET_ERROR,<<"Unexpected vbucket error">>};
 		[Map|Next] ->
 			case Map >= 0 of
-				false ->
+			    false ->
+				op(Op,Request,{VBucket,Next},State);
+			    true ->
+				DirectServer=list_to_atom(State#erlcb_client_state.mc_direct++integer_to_list(Map)),
+				{Status,Result}=gen_server:call(DirectServer,{Op,{Request,VBucket}}),
+				
+				io:format("Status : ~p , Result : ~p~n",[Status,Result]),
+
+				case Status < 0 of
+				    true ->
 					op(Op,Request,{VBucket,Next},State);
-				true ->
-					DirectServer=list_to_atom(State#erlcb_client_state.mc_direct++integer_to_list(Map)),
-					{Status,Result}=gen_server:call(DirectServer,{Op,{Request,VBucket}}),
-					case Status < 0 of
-						true ->
-							op(Op,Request,{VBucket,Next},State);
-						false ->
-							case Status of
-								?NOT_MY_VBUCKET ->
-									op(Op,Request,{VBucket,Next},State);
-								_->
-									{Status,Result}
-							end
+				    false ->
+					case Status of
+					    ?NOT_MY_VBUCKET ->
+						op(Op,Request,{VBucket,Next},State);
+					    _->
+						{Status,Result}
 					end
+				end
 			end
 	end.	
 	
